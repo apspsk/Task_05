@@ -1,0 +1,19 @@
+armor_detector:
+  ros__parameters:
+    use_camera: true
+    camera_topic: "/image_raw"
+    debug_mode: true
+    confidence_threshold: 0.5
+    publish_rate: 30.0
+
+camera_driver:
+  ros__parameters:
+    exposure: 4000.0
+    image_gain: 16.9807
+    use_trigger: false
+    fps: 165.0
+    pixel_format_code: 17301513  # BayerRG8
+    camera_frame: "camera_optical_frame"
+    
+
+

@@ -1,0 +1,23 @@
+#include "armor_detector/armor_detector.hpp"
+#include <rclcpp/rclcpp.hpp>
+
+ArmorDetector::ArmorDetector()
+{
+    RCLCPP_INFO(rclcpp::get_logger("ArmorDetector"), "Minimal detector initialized");
+}
+
+ArmorDetector::~ArmorDetector()
+{
+}
+
+std::vector<ArmorPlate> ArmorDetector::detect(const cv::Mat& image)
+{
+    std::vector<ArmorPlate> results;
+    
+    RCLCPP_INFO(rclcpp::get_logger("ArmorDetector"), "Minimal detection: %dx%d", image.cols, image.rows);
+    
+    // 完全不进行任何图像处理，只返回空结果
+    // 这样可以测试是否是算法本身的问题
+    
+    return results;
+}

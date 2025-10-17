@@ -1,0 +1,8 @@
+armor_detector:
+  ros__parameters:
+    exposure: 3500.0
+    image_gain: 17.0
+    use_trigger: false
+    fps: 160.0
+    pixel_format_code: 17301513  # BayerRG8 pixel format
+    camera_frame: "camera_optical_frame"
