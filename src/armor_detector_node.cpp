@@ -314,33 +314,13 @@ private:
             bbox_marker.lifetime = rclcpp::Duration::from_seconds(1.0 / publish_rate_ * 2);
             markers.markers.push_back(bbox_marker);
 
-            // 添加文本标记显示标签和置信度
-            visualization_msgs::msg::Marker text_marker;
-            text_marker.header = header;
-            text_marker.ns = "armor_labels";
-            text_marker.id = i;
-            text_marker.type = visualization_msgs::msg::Marker::TEXT_VIEW_FACING;
-            text_marker.action = visualization_msgs::msg::Marker::ADD;
+
             
-            text_marker.pose.position.x = armor.center.x;
-            text_marker.pose.position.y = armor.center.y - armor.bounding_box.height / 2 - 10;
-            text_marker.pose.position.z = 0;
-            text_marker.pose.orientation.w = 1.0;
+ 
             
-            text_marker.scale.z = 12.0; // 文字大小
+           
             
-            // 文本颜色与边界框一致
-            text_marker.color.r = bbox_marker.color.r;
-            text_marker.color.g = bbox_marker.color.g;
-            text_marker.color.b = bbox_marker.color.b;
-            text_marker.color.a = 1.0;
             
-            std::stringstream ss;
-            ss << armor.label << " Score:" << std::fixed << std::setprecision(2) << armor.confidence;
-            text_marker.text = ss.str();
-            
-            text_marker.lifetime = rclcpp::Duration::from_seconds(1.0 / publish_rate_ * 2);
-            markers.markers.push_back(text_marker);
         }
 
         return markers;
@@ -401,9 +381,7 @@ private:
                 // 绘制中心点
                 cv::circle(debug_image, debug_center, 5, cv::Scalar(0, 0, 255), -1);
                 
-                // 绘制十字准星在中心点
-                cv::drawMarker(debug_image, debug_center, cv::Scalar(255, 0, 0), 
-                              cv::MARKER_CROSS, 20, 2);
+               
                 
                 // 显示装甲板信息
                 std::string orderText = "Order:" + std::to_string(i + 1);

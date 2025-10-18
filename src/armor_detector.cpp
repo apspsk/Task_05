@@ -6,6 +6,9 @@
 #include <set>
 #include <map>
 
+#include <cv_bridge/cv_bridge.h>
+#include <sensor_msgs/msg/camera_info.hpp>
+
 using namespace cv;
 using namespace std;
 
@@ -849,57 +852,123 @@ ArmorDetector::~ArmorDetector()
     // 清理资源
 }
 
+
+
+
+
 std::vector<ArmorPlate> ArmorDetector::detect(const cv::Mat& image)
 {
     std::vector<ArmorPlate> results;
     
-    // 检查输入图像
     if (image.empty()) {
-        RCLCPP_ERROR(rclcpp::get_logger("ArmorDetector"), "Input image is empty!");
+        RCLCPP_ERROR(rclcpp::get_logger("ArmorDetector"), "输入图像为空！");
         return results;
     }
     
-    if (image.cols <= 0 || image.rows <= 0) {
-        RCLCPP_ERROR(rclcpp::get_logger("ArmorDetector"), "Invalid image dimensions: %dx%d", image.cols, image.rows);
-        return results;
-    }
+    int img_cols = image.cols;
+    int img_rows = image.rows;
+    const int rviz_img_width = img_cols;
+    const int rviz_img_height = img_rows;
+
+    // 1. 第一次对称中心：(2/3W, 1/2H)
+    float Cx1 = rviz_img_width * (2.0f / 3.0f);  // 第一对称中心x
+    float Cy1 = rviz_img_height * 0.5f;          // 第一对称中心y
     
-    RCLCPP_DEBUG(rclcpp::get_logger("ArmorDetector"), "Processing image: %dx%d", image.cols, image.rows);
+    // 2. 第二次对称轴：右往左1/8直线（x=7/8W）
+    float Cx2 = rviz_img_width * (7.0f / 8.0f);  // 第二对称轴x（仅x轴）
+
+    RCLCPP_INFO(rclcpp::get_logger("ArmorDetector"), 
+                "第一次对称中心: (%.1f, %.1f) | 第二次对称轴x: %.1f", 
+                Cx1, Cy1, Cx2);
     
     try {
-        // 预处理图像
         cv::Mat binary = preprocessImage(image);
-        
         if (binary.empty()) {
-            RCLCPP_WARN(rclcpp::get_logger("ArmorDetector"), "Binary image is empty after preprocessing");
+            RCLCPP_WARN(rclcpp::get_logger("ArmorDetector"), "预处理后二值图为空");
             return results;
         }
         
-        // 检测灯条
         std::vector<LightBar> lightBars = detectLightBarsByBrightness(binary, image);
-        
-        // 匹配装甲板
         std::vector<ArmorPlateInternal> internalArmors = matchArmorPlates(lightBars, image, binary);
         
-        // 转换为外部结构
         for (const auto& internalArmor : internalArmors) {
             ArmorPlate armor;
-            armor.bounding_box = internalArmor.boundingRect;
-            armor.center = cv::Point2f(internalArmor.boundingRect.x + internalArmor.boundingRect.width/2,
-                                     internalArmor.boundingRect.y + internalArmor.boundingRect.height/2);
+            cv::Rect original_rect = internalArmor.boundingRect;
+            
+            // 3. 装甲板原始中心（OpenCV坐标）
+            cv::Point2f original_center(
+                original_rect.x + original_rect.width / 2.0f,
+                original_rect.y + original_rect.height / 2.0f
+            );
+            
+            // 4. 转换到RViz原始坐标（y轴反转）
+            float Ox_prime = original_center.x;
+            float Oy_prime = rviz_img_height - original_center.y;
+            
+            // 5. 第一次对称：以(Cx1, Cy1)为中心
+            float box_center_x1 = 2 * Cx1 - Ox_prime;  // 第一次x对称
+            float box_center_y1 = 2 * Cy1 - Oy_prime;  // 第一次y对称
+            
+            // 6. 第二次对称：沿x=Cx2直线（仅x轴，y轴保持第一次结果）
+            float box_center_x2 = 2 * Cx2 - box_center_x1;  // 第二次x对称
+            float box_center_y2 = box_center_y1;            // y轴不变
+            
+            // 7. 计算最终矩形框四角
+            float w = original_rect.width;
+            float h = original_rect.height;
+            cv::Point2f rect_tl(box_center_x2 - w/2, box_center_y2 - h/2);
+            cv::Point2f rect_br(box_center_x2 + w/2, box_center_y2 + h/2);
+            
+            // 8. 转换为RViz矩形框
+            cv::Rect rviz_rect;
+            rviz_rect.x = 0.5*static_cast<int>(rect_tl.x)-335;
+            rviz_rect.y = 0.5*static_cast<int>(rect_tl.y)-15;  
+            rviz_rect.width = static_cast<int>(w);
+            rviz_rect.height = static_cast<int>(h);
+            
+            // 9. 两次对称变换四个顶点
+            for (int i = 0; i < 4; ++i) {
+                cv::Point2f original_vertex = internalArmor.vertices[i];
+                // 顶点转换到RViz原始坐标
+                float vx_prime = original_vertex.x;
+                float vy_prime = rviz_img_height - original_vertex.y;
+                // 第一次对称
+                float vx1 = 2 * Cx1 - vx_prime;
+                float vy1 = 2 * Cy1 - vy_prime;
+                // 第二次对称（仅x轴）
+                armor.vertices[i].x = 2 * Cx2 - vx1;
+                armor.vertices[i].y = vy1;  // y轴保持第一次结果
+            }
+            
+            // 10. 填充装甲板信息
+            armor.center = cv::Point2f(box_center_x2, box_center_y2);
+            armor.bounding_box = rviz_rect;
             armor.confidence = internalArmor.matchScore;
             armor.label = "armor_" + std::to_string(internalArmor.armorId);
+            
+            // 调试信息：验证两次对称
+            RCLCPP_INFO(rclcpp::get_logger("ArmorDetector"), 
+                        "\n===== 装甲板 %s 两次对称 =====", armor.label.c_str());
+            RCLCPP_INFO(rclcpp::get_logger("ArmorDetector"), 
+                        "原始中心（RViz）: (%.1f, %.1f)", Ox_prime, Oy_prime);
+            RCLCPP_INFO(rclcpp::get_logger("ArmorDetector"), 
+                        "第一次对称后: (%.1f, %.1f)", box_center_x1, box_center_y1);
+            RCLCPP_INFO(rclcpp::get_logger("ArmorDetector"), 
+                        "第二次对称后: (%.1f, %.1f)", box_center_x2, box_center_y2);
+            RCLCPP_INFO(rclcpp::get_logger("ArmorDetector"), 
+                        "==============================\n");
             
             results.push_back(armor);
         }
         
-        RCLCPP_DEBUG(rclcpp::get_logger("ArmorDetector"), "Detection completed: %zu armors found", results.size());
-        
     } catch (const cv::Exception& e) {
-        RCLCPP_ERROR(rclcpp::get_logger("ArmorDetector"), "OpenCV exception in detection: %s", e.what());
-    } catch (const std::exception& e) {
-        RCLCPP_ERROR(rclcpp::get_logger("ArmorDetector"), "Exception in detection: %s", e.what());
+        RCLCPP_ERROR(rclcpp::get_logger("ArmorDetector"), "OpenCV错误: %s", e.what());
     }
     
     return results;
 }
+
+
+
+
+
